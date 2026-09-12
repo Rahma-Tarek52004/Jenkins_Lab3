@@ -2,11 +2,19 @@ pipeline {
 
     agent any
 
+    options {
+        skipDefaultCheckout(true)
+    }
+
     environment {
         IMAGE_NAME = "jenkins_docker-app"
+
         DOCKER_CREDENTIALS = credentials('jenkins_docker')
+
         IMAGE_TAG = "${BUILD_NUMBER}"
+
         DOCKER_IMAGE = "${DOCKER_CREDENTIALS_USR}/${IMAGE_NAME}:${IMAGE_TAG}"
+
         CONTAINER_NAME = "flask-container"
     }
 
@@ -19,10 +27,38 @@ pipeline {
             }
         }
 
+        stage('Check Docker') {
+            steps {
+                sh '''
+                    echo "Docker version:"
+                    docker version
+
+                    echo ""
+                    echo "Docker info:"
+                    docker info
+                '''
+            }
+        }
+
+        stage('Test Docker Network') {
+            steps {
+                sh '''
+                    echo "Testing Python image and PyPI connection..."
+
+                    docker run --rm python:3.12-slim \
+                        python -m pip install flask
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                    echo "Building Docker image..."
+
+                    DOCKER_BUILDKIT=0 docker build \
+                        --no-cache \
+                        -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
@@ -58,12 +94,20 @@ pipeline {
         stage('Run Container') {
             steps {
                 sh '''
+                    echo "Removing old container if it exists..."
+
                     docker rm -f ${CONTAINER_NAME} || true
+
+                    echo "Starting new container..."
 
                     docker run -d \
                         --name ${CONTAINER_NAME} \
                         -p 5000:5000 \
                         ${DOCKER_IMAGE}
+
+                    echo "Container started."
+
+                    docker ps
                 '''
             }
         }
@@ -80,12 +124,16 @@ pipeline {
         }
 
         failure {
+            echo "========================================"
             echo "Pipeline failed!"
+            echo "Check the stage that failed above."
+            echo "========================================"
         }
 
         always {
-            sh 'docker logout || true'
+            sh '''
+                docker logout || true
+            '''
         }
     }
 }
-
